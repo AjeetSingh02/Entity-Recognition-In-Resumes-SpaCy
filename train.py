@@ -8,6 +8,7 @@
 import json
 import random
 import logging
+import re
 from sklearn.metrics import classification_report
 from sklearn.metrics import precision_recall_fscore_support
 from spacy.gold import GoldParse
@@ -46,16 +47,45 @@ def convert_dataturks_to_spacy(dataturks_JSON_FilePath):
 
 import spacy
 ################### Train Spacy NER.###########
+def trim_entity_spans(data: list) -> list:
+    """Removes leading and trailing white spaces from entity spans.
+
+    Args:
+        data (list): The data to be cleaned in spaCy JSON format.
+
+    Returns:
+        list: The cleaned data.
+    """
+    invalid_span_tokens = re.compile(r'\s')
+
+    cleaned_data = []
+    for text, annotations in data:
+        entities = annotations['entities']
+        valid_entities = []
+        for start, end, label in entities:
+            valid_start = start
+            valid_end = end
+            while valid_start < len(text) and invalid_span_tokens.match(
+                    text[valid_start]):
+                valid_start += 1
+            while valid_end > 1 and invalid_span_tokens.match(
+                    text[valid_end - 1]):
+                valid_end -= 1
+            valid_entities.append([valid_start, valid_end, label])
+        cleaned_data.append([text, {'entities': valid_entities}])
+
+    return cleaned_data
 def train_spacy():
 
-    TRAIN_DATA = convert_dataturks_to_spacy("/home/abhishekn/dataturks/entityrecognition/traindata.json")
+    TRAIN_DATA = convert_dataturks_to_spacy("/content/Entity-Recognition-In-Resumes-SpaCy/traindata.json")
+    TRAIN_DATA = trim_entity_spans(TRAIN_DATA)
     nlp = spacy.blank('en')  # create blank Language class
     # create the built-in pipeline components and add them to the pipeline
     # nlp.create_pipe works for built-ins that are registered with spaCy
     if 'ner' not in nlp.pipe_names:
         ner = nlp.create_pipe('ner')
         nlp.add_pipe(ner, last=True)
-       
+
 
     # add labels
     for _, annotations in TRAIN_DATA:
@@ -79,13 +109,13 @@ def train_spacy():
                     losses=losses)
             print(losses)
     #test the model and evaluate it
-    examples = convert_dataturks_to_spacy("/home/abhishekn/dataturks/entityrecognition/testdata.json")
+    examples = convert_dataturks_to_spacy("/content/Entity-Recognition-In-Resumes-SpaCy/testdata.json")
     tp=0
     tr=0
     tf=0
 
     ta=0
-    c=0        
+    c=0
     for text,annot in examples:
 
         f=open("resume"+str(c)+".txt","w")
@@ -109,9 +139,9 @@ def train_spacy():
             doc_gold_text= nlp.make_doc(text)
             gold = GoldParse(doc_gold_text, entities=annot.get("entities"))
             y_true = [ent.label_ if ent.label_ in x else 'Not '+ent.label_ for x in gold.ner]
-            y_pred = [x.ent_type_ if x.ent_type_ ==ent.label_ else 'Not '+ent.label_ for x in doc_to_test]  
+            y_pred = [x.ent_type_ if x.ent_type_ ==ent.label_ else 'Not '+ent.label_ for x in doc_to_test]
             if(d[ent.label_][0]==0):
-                #f.write("For Entity "+ent.label_+"\n")   
+                #f.write("For Entity "+ent.label_+"\n")
                 #f.write(classification_report(y_true, y_pred)+"\n")
                 (p,r,f,s)= precision_recall_fscore_support(y_true,y_pred,average='weighted')
                 a=accuracy_score(y_true,y_pred)
@@ -122,6 +152,9 @@ def train_spacy():
                 d[ent.label_][4]+=a
                 d[ent.label_][5]+=1
         c+=1
+        
+    nlp.to_disk('my_model')
+	
     for i in d:
         print("\n For Entity "+i+"\n")
         print("Accuracy : "+str((d[i][4]/d[i][5])*100)+"%")
